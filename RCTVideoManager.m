@@ -24,7 +24,15 @@ RCT_EXPORT_MODULE();
     @"onVideoError",
     @"onVideoProgress",
     @"onVideoSeek",
-    @"onVideoEnd"
+    @"onVideoEnd",
+    @"onVideoFullscreenPlayerWillPresent",
+    @"onVideoFullscreenPlayerDidPresent",
+    @"onVideoFullscreenPlayerWillDismiss",
+    @"onVideoFullscreenPlayerDidDismiss",
+    @"onReadyForDisplay",
+    @"onPlaybackStalled",
+    @"onPlaybackResume",
+    @"onPlaybackRateChange"
   ];
 }
 
@@ -43,6 +51,7 @@ RCT_EXPORT_VIEW_PROPERTY(volume, float);
 RCT_EXPORT_VIEW_PROPERTY(rate, float);
 RCT_EXPORT_VIEW_PROPERTY(seek, float);
 RCT_EXPORT_VIEW_PROPERTY(currentTime, float);
+RCT_EXPORT_VIEW_PROPERTY(fullscreen, BOOL);
 
 - (NSDictionary *)constantsToExport
 {

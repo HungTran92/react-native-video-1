@@ -7,6 +7,8 @@
 static NSString *const statusKeyPath = @"status";
 static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp";
 static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
+static NSString *const readyForDisplayKeyPath = @"readyForDisplay";
+static NSString *const playbackRate = @"rate";
 
 @implementation RCTVideo
 {
@@ -20,6 +22,7 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
 
   /* Required to publish events */
   RCTEventDispatcher *_eventDispatcher;
+  BOOL _playbackRateObserverRegistered;
 
   bool _pendingSeek;
   float _pendingSeekTime;
@@ -36,7 +39,10 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
   BOOL _muted;
   BOOL _paused;
   BOOL _repeat;
+  BOOL _playbackStalled;
   NSString * _resizeMode;
+  BOOL _fullscreenPlayerPresented;
+  UIViewController * _presentingViewController;
 }
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher
@@ -44,6 +50,8 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
   if ((self = [super init])) {
     _eventDispatcher = eventDispatcher;
 
+    _playbackRateObserverRegistered = NO;
+    _playbackStalled = NO;
     _rate = 1.0;
     _volume = 1.0;
     _resizeMode = @"AVLayerVideoGravityResizeAspectFill";
@@ -69,7 +77,9 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
 }
 
 - (AVPlayerViewController*)createPlayerViewController:(AVPlayer*)player withPlayerItem:(AVPlayerItem*)playerItem {
-    AVPlayerViewController* playerLayer= [[AVPlayerViewController alloc] init];
+    RCTVideoPlayerViewController* playerLayer= [[RCTVideoPlayerViewController alloc] init];
+    playerLayer.showsPlaybackControls = NO;
+    playerLayer.rctDelegate = self;
     playerLayer.view.frame = self.bounds;
     playerLayer.player = _player;
     playerLayer.view.frame = self.bounds;
@@ -209,13 +219,20 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
   [self addPlayerItemObservers];
 
   [_player pause];
-  [_playerLayer removeFromSuperlayer];
-  _playerLayer = nil;
+  [self removePlayerLayer];
   [_playerViewController.view removeFromSuperview];
   _playerViewController = nil;
 
+  if (_playbackRateObserverRegistered) {
+    [_player removeObserver:self forKeyPath:playbackRate context:nil];
+    _playbackRateObserverRegistered = NO;
+  }
+
   _player = [AVPlayer playerWithPlayerItem:_playerItem];
   _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+  
+  [_player addObserver:self forKeyPath:playbackRate options:0 context:nil];
+  _playbackRateObserverRegistered = YES;
 
   const Float64 progressUpdateIntervalMS = _progressUpdateInterval / 1000;
   // @see endScrubbing in AVPlayerDemoPlaybackViewController.m of https://developer.apple.com/library/ios/samplecode/AVPlayerDemo/Introduction/Intro.html
@@ -263,6 +280,25 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
         if (isnan(duration)) {
           duration = 0.0;
         }
+          
+        NSObject *width = @"undefined";
+        NSObject *height = @"undefined";
+        NSString *orientation = @"undefined";
+
+        if ([_playerItem.asset tracksWithMediaType:AVMediaTypeVideo].count > 0) {
+          AVAssetTrack *videoTrack = [[_playerItem.asset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+          width = [NSNumber numberWithFloat:videoTrack.naturalSize.width];
+          height = [NSNumber numberWithFloat:videoTrack.naturalSize.height];
+          CGAffineTransform preferredTransform = [videoTrack preferredTransform];
+
+          if ((videoTrack.naturalSize.width == preferredTransform.tx
+            && videoTrack.naturalSize.height == preferredTransform.ty)
+            || (preferredTransform.tx == 0 && preferredTransform.ty == 0))
+          {
+            orientation = @"landscape";
+          } else
+            orientation = @"portrait";
+        }
 
         [_eventDispatcher sendInputEventWithName:@"onVideoLoad"
                                             body:@{@"duration": [NSNumber numberWithFloat:duration],
@@ -273,6 +309,11 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
                                                    @"canPlaySlowReverse": [NSNumber numberWithBool:_playerItem.canPlaySlowReverse],
                                                    @"canStepBackward": [NSNumber numberWithBool:_playerItem.canStepBackward],
                                                    @"canStepForward": [NSNumber numberWithBool:_playerItem.canStepForward],
+                                                   @"naturalSize": @{
+                                                        @"width": width,
+                                                        @"height": height,
+                                                        @"orientation": orientation
+                                                        },
                                                    @"target": self.reactTag}];
 
         [self attachListeners];
@@ -293,6 +334,25 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
       }
       _playerBufferEmpty = NO;
     }
+   } else if (object == _playerLayer) {
+      if([keyPath isEqualToString:readyForDisplayKeyPath] && [change objectForKey:NSKeyValueChangeNewKey]) {
+        if([change objectForKey:NSKeyValueChangeNewKey]) {
+          [_eventDispatcher sendInputEventWithName:@"onReadyForDisplay"
+                                              body:@{@"target": self.reactTag}];
+        }
+    }
+  } else if (object == _player) {
+      if([keyPath isEqualToString:playbackRate]) {
+          [_eventDispatcher sendInputEventWithName:@"onPlaybackRateChange"
+                                              body:@{@"playbackRate": [NSNumber numberWithFloat:_player.rate],
+                                                     @"target": self.reactTag}];
+          if(_playbackStalled && _player.rate > 0) {
+              [_eventDispatcher sendInputEventWithName:@"onPlaybackResume"
+                                                  body:@{@"playbackRate": [NSNumber numberWithFloat:_player.rate],
+                                                         @"target": self.reactTag}];
+              _playbackStalled = NO;
+          }
+      }
   } else {
       [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
   }
@@ -305,6 +365,16 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
                                            selector:@selector(playerItemDidReachEnd:)
                                                name:AVPlayerItemDidPlayToEndTimeNotification
                                              object:[_player currentItem]];
+  [[NSNotificationCenter defaultCenter] addObserver:self
+                                           selector:@selector(playbackStalled:)
+                                               name:AVPlayerItemPlaybackStalledNotification
+                                             object:nil];
+}
+
+- (void)playbackStalled:(NSNotification *)notification
+{
+  [_eventDispatcher sendInputEventWithName:@"onPlaybackStalled" body:@{@"target": self.reactTag}];
+  _playbackStalled = YES;
 }
 
 - (void)playerItemDidReachEnd:(NSNotification *)notification
@@ -425,6 +495,54 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
   _repeat = repeat;
 }
 
+- (BOOL)getFullscreen
+{
+    return _fullscreenPlayerPresented;
+}
+
+- (void)setFullscreen:(BOOL)fullscreen
+{
+    if( fullscreen && !_fullscreenPlayerPresented )
+    {
+        // Ensure player view controller is not null
+        if( !_playerViewController )
+        {
+            [self usePlayerViewController];
+        }
+        // Set presentation style to fullscreen
+        [_playerViewController setModalPresentationStyle:UIModalPresentationFullScreen];
+        
+        // Find the nearest view controller
+        UIViewController *viewController = [self firstAvailableUIViewController];
+        if( !viewController )
+        {
+            UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
+            viewController = keyWindow.rootViewController;
+            if( viewController.childViewControllers.count > 0 )
+            {
+                viewController = viewController.childViewControllers.lastObject;
+            }
+        }
+        if( viewController )
+        {
+            _presentingViewController = viewController;
+            [_eventDispatcher sendInputEventWithName:@"onVideoFullscreenPlayerWillPresent" body:@{@"target": self.reactTag}];
+            [viewController presentViewController:_playerViewController animated:true completion:^{
+                _playerViewController.showsPlaybackControls = YES;
+                _fullscreenPlayerPresented = fullscreen;
+                [_eventDispatcher sendInputEventWithName:@"onVideoFullscreenPlayerDidPresent" body:@{@"target": self.reactTag}];
+            }];
+        }
+    }
+    else if ( !fullscreen && _fullscreenPlayerPresented )
+    {
+        [self videoPlayerViewControllerWillDismiss:_playerViewController];
+        [_presentingViewController dismissViewControllerAnimated:true completion:^{
+            [self videoPlayerViewControllerDidDismiss:_playerViewController];
+        }];
+    }
+}
+
 - (void)usePlayerViewController
 {
     if( _player )
@@ -441,6 +559,8 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
       _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
       _playerLayer.frame = self.bounds;
       _playerLayer.needsDisplayOnBoundsChange = YES;
+        
+      [_playerLayer addObserver:self forKeyPath:readyForDisplayKeyPath options:NSKeyValueObservingOptionNew context:nil];
     
       [self.layer addSublayer:_playerLayer];
       self.layer.needsDisplayOnBoundsChange = YES;
@@ -454,8 +574,7 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
         _controls = controls;
         if( _controls )
         {
-            [_playerLayer removeFromSuperlayer];
-            _playerLayer = nil;
+            [self removePlayerLayer];
             [self usePlayerViewController];
         }
         else
@@ -464,6 +583,34 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
             _playerViewController = nil;
             [self usePlayerLayer];
         }
+    }
+}
+
+- (void)removePlayerLayer
+{
+    [_playerLayer removeFromSuperlayer];
+    [_playerLayer removeObserver:self forKeyPath:readyForDisplayKeyPath];
+    _playerLayer = nil;
+}
+
+#pragma mark - RCTVideoPlayerViewControllerDelegate
+
+- (void)videoPlayerViewControllerWillDismiss:(AVPlayerViewController *)playerViewController
+{
+    if (_playerViewController == playerViewController && _fullscreenPlayerPresented)
+    {
+        [_eventDispatcher sendInputEventWithName:@"onVideoFullscreenPlayerWillDismiss" body:@{@"target": self.reactTag}];
+    }
+}
+
+- (void)videoPlayerViewControllerDidDismiss:(AVPlayerViewController *)playerViewController
+{
+    if (_playerViewController == playerViewController && _fullscreenPlayerPresented)
+    {
+        _fullscreenPlayerPresented = false;
+        _presentingViewController = nil;
+        [self applyModifiers];
+        [_eventDispatcher sendInputEventWithName:@"onVideoFullscreenPlayerDidDismiss" body:@{@"target": self.reactTag}];
     }
 }
 
@@ -529,10 +676,13 @@ static NSString *const playbackBufferEmptyKeyPath = @"playbackBufferEmpty";
 - (void)removeFromSuperview
 {
   [_player pause];
+  if (_playbackRateObserverRegistered) {
+    [_player removeObserver:self forKeyPath:playbackRate context:nil];
+    _playbackRateObserverRegistered = NO;
+  }
   _player = nil;
 
-  [_playerLayer removeFromSuperlayer];
-  _playerLayer = nil;
+  [self removePlayerLayer];
   
   [_playerViewController.view removeFromSuperview];
   _playerViewController = nil;

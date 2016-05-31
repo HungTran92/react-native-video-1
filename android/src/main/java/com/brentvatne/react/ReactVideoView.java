@@ -7,8 +7,15 @@ import android.media.MediaPlayer;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.util.Log;
+<<<<<<< HEAD
 import android.view.WindowManager;
 
+=======
+import android.net.Uri;
+import android.webkit.CookieManager;
+import java.util.Map;
+import java.util.HashMap;
+>>>>>>> 242b79ac385736cc3d420f46e9df227eff40a9db
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.uimanager.ThemedReactContext;
@@ -208,6 +215,40 @@ public class ReactVideoView extends ScalableVideoView implements MediaPlayer.OnP
 
 
 
+<<<<<<< HEAD
+=======
+        try {
+            if (isNetwork) {
+                // Use the shared CookieManager to access the cookies
+                // set by WebViews inside the same app
+                CookieManager cookieManager = CookieManager.getInstance();
+
+                Uri parsedUrl = Uri.parse(uriString);
+                Uri.Builder builtUrl = parsedUrl.buildUpon();
+
+                String cookie = cookieManager.getCookie(builtUrl.build().toString());
+
+                Map<String, String> headers = new HashMap<String, String>();
+
+                if (cookie != null) {
+                    headers.put("Cookie", cookie);
+                }
+
+                setDataSource(mThemedReactContext, parsedUrl, headers);
+            } else if (isAsset) {
+                if (uriString.startsWith("content://")) {
+                    Uri parsedUrl = Uri.parse(uriString);
+                    setDataSource(mThemedReactContext, parsedUrl);
+                } else {
+                    setDataSource(uriString);
+                }
+            } else {
+                setRawData(mThemedReactContext.getResources().getIdentifier(
+                        uriString,
+                        "raw",
+                        mThemedReactContext.getPackageName()
+                ));
+>>>>>>> 242b79ac385736cc3d420f46e9df227eff40a9db
             }
         }
 

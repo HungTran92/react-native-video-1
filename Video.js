@@ -1,14 +1,18 @@
-import React from 'react-native';
+import React from 'react';
+import ReactNative from 'react-native';
 import VideoResizeMode from './VideoResizeMode.js';
 
 const {
   Component,
+  PropTypes,
+} = React;
+
+const {
   StyleSheet,
   requireNativeComponent,
-  PropTypes,
   NativeModules,
   View,
-} = React;
+} = ReactNative;
 
 const styles = StyleSheet.create({
   base: {
@@ -21,6 +25,8 @@ export default class Video extends Component {
   constructor(props, context) {
     super(props, context);
     this.seek = this.seek.bind(this);
+    this.presentFullscreenPlayer = this.presentFullscreenPlayer.bind(this);
+    this.dismissFullscreenPlayer = this.dismissFullscreenPlayer.bind(this);
     this._assignRoot = this._assignRoot.bind(this);
     this._onLoadStart = this._onLoadStart.bind(this);
     this._onLoad = this._onLoad.bind(this);
@@ -28,6 +34,14 @@ export default class Video extends Component {
     this._onProgress = this._onProgress.bind(this);
     this._onSeek = this._onSeek.bind(this);
     this._onEnd = this._onEnd.bind(this);
+    this._onFullscreenPlayerWillPresent = this._onFullscreenPlayerWillPresent.bind(this);
+    this._onFullscreenPlayerDidPresent = this._onFullscreenPlayerDidPresent.bind(this);
+    this._onFullscreenPlayerWillDismiss = this._onFullscreenPlayerWillDismiss.bind(this);
+    this._onFullscreenPlayerDidDismiss = this._onFullscreenPlayerDidDismiss.bind(this);
+    this._onReadyForDisplay = this._onReadyForDisplay.bind(this);
+    this._onPlaybackStalled = this._onPlaybackStalled.bind(this);
+    this._onPlaybackResume = this._onPlaybackResume.bind(this);
+    this._onPlaybackRateChange = this._onPlaybackRateChange.bind(this);
   }
 
   setNativeProps(nativeProps) {
@@ -36,6 +50,14 @@ export default class Video extends Component {
 
   seek(time) {
     this.setNativeProps({ seek: time });
+  }
+
+  presentFullscreenPlayer() {
+    this.setNativeProps({ fullscreen: true });
+  }
+
+  dismissFullscreenPlayer() {
+    this.setNativeProps({ fullscreen: false });
   }
 
   _assignRoot(component) {
@@ -78,6 +100,54 @@ export default class Video extends Component {
     }
   }
 
+  _onFullscreenPlayerWillPresent(event) {
+    if (this.props.onFullscreenPlayerWillPresent) {
+      this.props.onFullscreenPlayerWillPresent(event.nativeEvent);
+    }
+  }
+
+  _onFullscreenPlayerDidPresent(event) {
+    if (this.props.onFullscreenPlayerDidPresent) {
+      this.props.onFullscreenPlayerDidPresent(event.nativeEvent);
+    }
+  }
+
+  _onFullscreenPlayerWillDismiss(event) {
+    if (this.props.onFullscreenPlayerWillDismiss) {
+      this.props.onFullscreenPlayerWillDismiss(event.nativeEvent);
+    }
+  }
+
+  _onFullscreenPlayerDidDismiss(event) {
+    if (this.props.onFullscreenPlayerDidDismiss) {
+      this.props.onFullscreenPlayerDidDismiss(event.nativeEvent);
+    }
+  }
+
+  _onReadyForDisplay(event) {
+    if (this.props.onReadyForDisplay) {
+      this.props.onReadyForDisplay(event.nativeEvent);
+    }
+  }
+
+  _onPlaybackStalled(event) {
+    if (this.props.onPlaybackStalled) {
+      this.props.onPlaybackStalled(event.nativeEvent);
+    }
+  }
+
+  _onPlaybackResume(event) {
+    if (this.props.onPlaybackResume) {
+      this.props.onPlaybackResume(event.nativeEvent);
+    }
+  }
+
+  _onPlaybackRateChange(event) {
+    if (this.props.onPlaybackRateChange) {
+      this.props.onPlaybackRateChange(event.nativeEvent);
+    }
+  }
+
   render() {
     const {
       source,
@@ -89,8 +159,13 @@ export default class Video extends Component {
       uri = `file://${uri}`;
     }
 
+<<<<<<< HEAD
     const isNetwork = !!(uri && (uri.match(/^https?:/) || uri.match(/^rtsp?:/) ));
     const isAsset = !!(uri && uri.match(/^(assets-library|file):/));
+=======
+    const isNetwork = !!(uri && uri.match(/^https?:/));
+    const isAsset = !!(uri && uri.match(/^(assets-library|file|content):/));
+>>>>>>> 242b79ac385736cc3d420f46e9df227eff40a9db
 
     let nativeResizeMode;
     if (resizeMode === VideoResizeMode.stretch) {
@@ -119,6 +194,14 @@ export default class Video extends Component {
       onVideoProgress: this._onProgress,
       onVideoSeek: this._onSeek,
       onVideoEnd: this._onEnd,
+      onVideoFullscreenPlayerWillPresent: this._onFullscreenPlayerWillPresent,
+      onVideoFullscreenPlayerDidPresent: this._onFullscreenPlayerDidPresent,
+      onVideoFullscreenPlayerWillDismiss: this._onFullscreenPlayerWillDismiss,
+      onVideoFullscreenPlayerDidDismiss: this._onFullscreenPlayerDidDismiss,
+      onReadyForDisplay: this._onReadyForDisplay,
+      onPlaybackStalled: this._onPlaybackStalled,
+      onPlaybackResume: this._onPlaybackResume,
+      onPlaybackRateChange: this._onPlaybackRateChange,
     });
 
     return (
@@ -134,6 +217,7 @@ Video.propTypes = {
   /* Native only */
   src: PropTypes.object,
   seek: PropTypes.number,
+  fullscreen: PropTypes.bool,
 
   /* Wrapper component */
   source: PropTypes.object,
@@ -151,6 +235,14 @@ Video.propTypes = {
   onProgress: PropTypes.func,
   onSeek: PropTypes.func,
   onEnd: PropTypes.func,
+  onFullscreenPlayerWillPresent: PropTypes.func,
+  onFullscreenPlayerDidPresent: PropTypes.func,
+  onFullscreenPlayerWillDismiss: PropTypes.func,
+  onFullscreenPlayerDidDismiss: PropTypes.func,
+  onReadyForDisplay: PropTypes.func,
+  onPlaybackStalled: PropTypes.func,
+  onPlaybackResume: PropTypes.func,
+  onPlaybackRateChange: PropTypes.func,
 
   /* Required by react-native */
   scaleX: React.PropTypes.number,
@@ -165,5 +257,6 @@ const RCTVideo = requireNativeComponent('RCTVideo', Video, {
   nativeOnly: {
     src: true,
     seek: true,
+    fullscreen: true,
   },
 });
